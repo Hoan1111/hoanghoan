@@ -1,0 +1,237 @@
+# Tìm file trong thư mục và thư mục con
+def find_files(path, ext, file_size_limit):
+    matched_files = []
+    for root, _, files in os.walk(path):
+        for file in files:
+            if file.lower().endswith(tuple(ext)) and os.path.getsize(os.path.join(root, file)) > file_size_limit:
+                matched_files.append(os.path.join(root, file))
+    return matched_files
+
+
+# Lấy thông tin đăng nhập từ tập tin credentials.json
+def login():
+    creds = None
+    # Nếu bạn đã đăng nhập trước đó, sử dụng thông tin đăng nhập cũ
+    if os.path.exists("token.pickle"):
+        with open("token.pickle", "rb") as token:
+            creds = pickle.load(token)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file("hoanho.json", ["https://www.googleapis.com/auth/drive"])
+            creds = flow.run_local_server(port=0)
+
+        with open("token.pickle", "wb") as token:
+            pickle.dump(creds, token)
+
+    return creds
+
+# Tải lên file lên Google Drive và trả lại liên kết
+# def upload_to_drive(file_path, credentials, folder_id):
+#     service = build("drive", "v3", credentials=credentials)
+#     file_metadata = {"name": os.path.basename(file_path), "parents": [folder_id]}
+#     media = MediaFileUpload(file_path, resumable=True)
+#     file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+#     print(f"Đã tải lên {file.get('name')} ID: {file.get('id')} webViewLink: {file.get('webViewLink')}")
+#     return file.get("webViewLink")
+
+def upload_to_drive(file_path, credentials, folder_id):
+    # Tạo dịch vụ API với sự hỗ trợ cho ổ đĩa chia sẻ
+    service = build('drive', 'v3', credentials=credentials, cache_discovery=False)
+
+    # Tạo metadata cho file, bao gồm ID của ổ đĩa chia sẻ
+    file_metadata = {
+        'name': os.path.basename(file_path),
+        'parents': [folder_id],
+        'driveId': '15whJLuHMSZuLrw_WGlpjTEVtot6kU7Iw',  # Thay thế bằng ID ổ đĩa chia sẻ của bạn
+    }
+
+    # Tạo MediaFileUpload object
+    media = MediaFileUpload(file_path, resumable=True)
+
+    # Tạo file trên ổ đĩa chia sẻ
+    request = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id, webViewLink',
+        supportsAllDrives=True,  # Đảm bảo request hỗ trợ ổ đĩa chia sẻ
+    )
+
+    # Thực hiện request và nhận kết quả
+    file = request.execute()
+
+    print(f"Đã tải lên {file.get('name')} ID: {file.get('id')} webViewLink: {file.get('webViewLink')}")
+    return file.get("webViewLink")
+
+
+def create_pdf(file_path, urls):
+    folder_path = os.path.dirname(file_path)
+    file_name = os.path.splitext(os.path.basename(file_path))[0]
+    output_path = os.path.join(folder_path, f"{file_name}.pdf")
+
+    c = canvas.Canvas(output_path, pagesize=letter, bottomup=True)
+
+    # Thêm ảnh nền
+    background_image = "C:/Users/HoangHoanPhoto/Downloads/anh PDF/hoanghoan.jpg"  # Đường dẫn đến ảnh nền
+    img = ImageReader(background_image)
+    c.drawImage(img, 0, 0, width=612, height=792)
+
+    c.setFont("Helvetica-Bold", 14)  # Tăng kích thước và in đậm chữ
+    c.setFillColor(colors.black)  # Đặt màu sắc cho văn bản
+
+    # Xác định tọa độ căn giữa của ảnh nền
+    center_x = letter[0] / 2
+    center_y = letter[1] / 2
+
+    # Đoạn text "Thank you for your support. Please click on the button below to download the file you just purchased"
+    text = "Thank you for your support. Please click on the button below to download the file you just purchased"
+    textobj = c.beginText()
+    textobj.setFont("Helvetica-Bold", 16)  # Tăng kích thước và in đậm chữ
+    textobj.setFillColor(colors.black)  # Đặt màu sắc cho văn bản
+
+    # Ngắt dòng theo dấu chấm
+    lines = text.split(". ")
+    line_height = c._leading
+    text_y = center_y
+
+    for line in lines:
+        line_width = c.stringWidth(line, "Helvetica-Bold", 16)  # Tăng kích thước chữ
+        line_x = center_x - (line_width / 2)
+        textobj.setTextOrigin(line_x, text_y)
+        textobj.textLine(line)
+        text_y -= line_height
+
+    c.drawText(textobj)
+
+    text_height = c._leading
+
+    for i, url in enumerate(urls):
+        rect_width = 200
+        rect_height = 20
+
+        text = "CLICK HERE TO DOWNLOAD"
+        text_width = c.stringWidth(text, "Helvetica-Bold", 16)  # Tăng kích thước chữ
+        text_x = center_x - (text_width / 2)
+        text_y -= rect_height
+        text_y -= 30
+
+        rect_x = center_x - (text_width / 2)  # Updated
+        rect_y = text_y
+        rect_width = text_width
+        c.rect(rect_x, rect_y, rect_width, rect_height, fill=0)
+
+        text_y = rect_y + rect_height / 2 - 6
+        c.setFillColor(colors.blue)  # Giữ nguyên màu xanh cho văn bản trong hình chữ nhật
+        c.drawString(text_x, text_y, text)
+        c.setFillColor(colors.black)  # Chuyển lại màu sắc cho văn bản
+        download_url = f"https://drive.google.com/uc?export=download&id={url.split('/')[-2]}"
+        c.linkURL(download_url, (rect_x, rect_y, rect_x + rect_width, rect_y + rect_height), relative=1, thickness=1,
+                  color=colors.blue, underline=1, stroke=1, fit="/Fit")
+
+    text = "Have you heard that our Facebook group offers 300+ free designs, with new additions every week, We also notify you about designs available for just $1."
+    textobj = c.beginText()
+    textobj.setFont("Helvetica-Bold", 16)  # Tăng kích thước và in đậm chữ
+    lines = text.split(", ")
+    line_height = c._leading
+    text_y -= 50 + text_height + line_height
+
+    for line in lines:
+        words = line.split(' ')
+        line_x = center_x - c.stringWidth(line, "Helvetica-Bold", 16) / 2
+        textobj.setTextOrigin(line_x, text_y)
+        for word in words:
+            if '500+' in word:  # Kiểm tra xem từ có chứa '500+' không
+                textobj.setFillColor(colors.red)  # Nếu có, đặt màu sắc cho từ này là đỏ
+            else:
+                textobj.setFillColor(colors.black)  # Nếu không, đặt màu sắc là đen
+            textobj.textOut(word + ' ')  # Thêm từ vào đoạn văn bản
+        textobj.textLine('')  # Thêm một dòng mới
+        text_y -= line_height
+
+    c.drawText(textobj)
+
+    text = "CLICK HERE TO ACCESS FREE DESIGN"
+    text_width = c.stringWidth(text, "Helvetica-Bold", 16)  # Tăng kích thước chữ
+    text_x = center_x - (text_width / 2)
+    text_y -= rect_height
+    text_y -= 30
+
+    rect_x = center_x - (text_width / 2)  # Updated
+    rect_y = text_y
+    rect_width = text_width
+    c.rect(rect_x, rect_y, rect_width, rect_height, fill=0)
+
+    text_y = rect_y + rect_height / 2 - 6
+    c.setFillColor(colors.blue)  # Giữ nguyên màu xanh cho văn bản trong hình chữ nhật
+    c.drawString(text_x, text_y, text)
+    c.setFillColor(colors.black)  # Chuyển lại màu sắc cho văn bản
+
+    url = "https://www.facebook.com/groups/tumblerdiy"
+    c.linkURL(url, (rect_x, rect_y, rect_x + rect_width, rect_y + rect_height), relative=1, thickness=1,
+              color=colors.blue, underline=1, stroke=1, fit="/Fit")
+
+    c.showPage()
+    c.save()
+
+
+def create_folder(service, name, parent_id):
+    file_metadata = {
+        "name": name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [parent_id],
+    }
+    folder = service.files().create(
+        body=file_metadata,
+        fields="id, webViewLink",
+        supportsAllDrives=True,
+    ).execute()
+    return folder["id"]
+
+
+def upload_to_drive(service, file_path, folder_id):
+    file_metadata = {
+        "name": os.path.basename(file_path),
+        "parents": [folder_id],
+        "driveId": "<shared-drive-id>",  # Thay thế bằng ID ổ đĩa chia sẻ của bạn
+    }
+    media = MediaFileUpload(file_path, resumable=True)
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id, webViewLink",
+        supportsAllDrives=True,
+    ).execute()
+    print(
+        f"Đã tải lên {file.get('name')} ID: {file.get('id')} webViewLink: {file.get('webViewLink')}"
+    )
+    return file.get("webViewLink")
+
+
+def main():
+    credentials = login()
+    service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+    root_folder_id = "1yMLdieneJnHSJNpY4_v8BFfo1AB6tYl5"
+    root_folder_path = "C:/Users/HoangHoanPhoto/Downloads/UP TOOL"
+    extensions = [".zip", ".png"]
+    file_size_limit = 0
+    for root, dirs, files in os.walk(root_folder_path):
+        for dir in dirs:
+            dir_path = os.path.join(root, dir)
+            relative_dir_path = os.path.relpath(dir_path, root_folder_path)
+            parent_id = root_folder_id
+            for folder in relative_dir_path.split(os.sep):
+                folder_id = create_folder(service, folder, parent_id)
+                parent_id = folder_id
+            for file in files:
+                if file.lower().endswith(tuple(extensions)) and os.path.getsize(
+                    os.path.join(root, file)
+                ) > file_size_limit:
+                    upload_to_drive(service, os.path.join(root, file), folder_id)
+    for file_path, urls in file_urls.items():
+        create_pdf(file_path, urls)
+
+
+if __name__ == "__main__":
+    main()
